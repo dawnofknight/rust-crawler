@@ -30,7 +30,11 @@ async fn main() {
     let app = routes::create_routes(pool).layer(cors);
     
     // Run the server
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let port = std::env::var("SERVER_PORT")
+        .unwrap_or_else(|_| "3000".to_string())
+        .parse::<u16>()
+        .unwrap_or(3000);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("Server running on http://{}", addr);
     
     axum::serve(

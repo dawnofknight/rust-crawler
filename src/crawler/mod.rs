@@ -75,12 +75,21 @@ pub enum CrawlerError {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CrawlResult {
+    pub results: Vec<DomainResult>, // Changed to support multiple domains
+    pub total_pages_crawled: usize,
+    pub total_processing_time_ms: u64,
+    pub crawl_timestamp: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DomainResult {
     pub url: String,
     pub title: Option<String>,
     pub matches: Vec<KeywordMatch>,
     pub pages_crawled: usize,
     pub has_more_pages: bool,
     pub metadata: Option<CrawlMetadata>,
+    pub error: Option<String>, // To capture domain-specific errors
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -101,7 +110,7 @@ pub struct KeywordMatch {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CrawlRequest {
-    pub url: String,
+    pub url: String, // Can contain multiple URLs separated by commas
     pub keywords: Vec<String>,
     pub max_depth: Option<usize>,
     pub max_time_seconds: Option<u64>,
@@ -109,10 +118,95 @@ pub struct CrawlRequest {
     pub max_pages: Option<usize>,
 }
 
+// Helper function to parse multiple URLs from comma-separated string
+fn parse_urls(url_string: &str) -> Result<Vec<Url>, CrawlerError> {
+    let mut urls = Vec::new();
+    
+    // Clean the input string by removing backticks and extra whitespace
+    let cleaned_input = url_string.trim().replace('`', "");
+    
+    for url_str in cleaned_input.split(',') {
+        let trimmed_url = url_str.trim();
+        if !trimmed_url.is_empty() {
+            // Additional validation to ensure the URL has a proper scheme
+            let url_to_parse = if !trimmed_url.starts_with("http://") && !trimmed_url.starts_with("https://") {
+                format!("https://{}", trimmed_url)
+            } else {
+                trimmed_url.to_string()
+            };
+            
+            match Url::parse(&url_to_parse) {
+                Ok(parsed_url) => urls.push(parsed_url),
+                Err(e) => {
+                    // Log the error but continue processing other URLs
+                    eprintln!("Failed to parse URL '{}': {}", trimmed_url, e);
+                    continue;
+                }
+            }
+        }
+    }
+    
+    if urls.is_empty() {
+        return Err(CrawlerError::Other("No valid URLs provided".to_string()));
+    }
+    
+    Ok(urls)
+}
+
 pub async fn crawl_website(request: &CrawlRequest) -> Result<CrawlResult, CrawlerError> {
     let start_processing_time = Instant::now();
+    
+    // Parse multiple URLs from the comma-separated string
+    let urls = parse_urls(&request.url)?;
+    
+    let mut domain_results = Vec::new();
+    let mut total_pages_crawled = 0;
+    
+    // Process each domain
+    for base_url in urls {
+        let domain_result = crawl_single_domain(&base_url, request, start_processing_time).await;
+        
+        match domain_result {
+            Ok(mut result) => {
+                total_pages_crawled += result.pages_crawled;
+                domain_results.push(result);
+            }
+            Err(err) => {
+                // Create an error result for this domain
+                let error_result = DomainResult {
+                    url: base_url.to_string(),
+                    title: None,
+                    matches: Vec::new(),
+                    pages_crawled: 0,
+                    has_more_pages: false,
+                    metadata: None,
+                    error: Some(err.to_string()),
+                };
+                domain_results.push(error_result);
+            }
+        }
+    }
+    
+    // Create metadata
+    let now = SystemTime::now();
+    let timestamp = now.duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_secs();
+    
+    Ok(CrawlResult {
+        results: domain_results,
+        total_pages_crawled,
+        total_processing_time_ms: start_processing_time.elapsed().as_millis() as u64,
+        crawl_timestamp: format!("{}", timestamp),
+    })
+}
+
+async fn crawl_single_domain(
+    base_url: &Url,
+    request: &CrawlRequest,
+    start_processing_time: Instant,
+) -> Result<DomainResult, CrawlerError> {
     let client = Client::new();
-    let base_url = Url::parse(&request.url.trim())?;
     
     // Set up time tracking if max_time_seconds is specified
     let start_time = Instant::now();
@@ -197,13 +291,14 @@ pub async fn crawl_website(request: &CrawlRequest) -> Result<CrawlResult, Crawle
         content_summary: page_title.clone(),
     };
     
-    Ok(CrawlResult {
+    Ok(DomainResult {
         url: base_url.to_string(),
         title: page_title,
         matches: all_matches,
         pages_crawled,
         has_more_pages,
         metadata: Some(metadata),
+        error: None,
     })
 }
 
