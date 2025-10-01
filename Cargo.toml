@@ -12,8 +12,8 @@ serde_json = "1.0.145"
 sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "macros", "migrate", "chrono"] }
 tokio = { version = "1.47.1", features = ["full"] }
 tower-http = { version = "0.6.6", features = ["cors"] }
-reqwest = { version = "0.11", features = ["json"] }
-scraper = "0.18.1"
+spider = { version = "2.0", features = ["serde", "regex", "ua_generator", "time"] }
+compact_str = "0.7"
 url = "2.4.1"
 thiserror = "1.0.50"
-regex = "1.10.2"
+regex = "1.11.3"
