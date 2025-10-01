@@ -7,6 +7,7 @@ use thiserror::Error;
 use url::Url;
 use regex::Regex;
 use chrono::{DateTime, NaiveDate};
+use html2text;
 
 // Helper function to parse date string to NaiveDate
 fn parse_date_string(date_str: &str) -> Result<NaiveDate, CrawlerError> {
@@ -138,22 +139,20 @@ fn matches_date_filter(
 
 // Add text cleaning functions
 fn clean_html_text(html_text: &str) -> String {
-    // Simple HTML tag removal
-    let re_html = Regex::new(r"<[^>]*>").unwrap_or_else(|_| Regex::new(r"").unwrap());
-    let text_without_tags = re_html.replace_all(html_text, " ").to_string();
+    // Use html2text for better HTML-to-text conversion
+    let text = html2text::from_read(html_text.as_bytes(), 120);
     
-    // Replace HTML entities
-    let text_without_entities = text_without_tags
-        .replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'");
+    // Additional cleanup for better formatting
+    let text = text
+        .lines()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<&str>>()
+        .join("\n");
     
-    // Normalize whitespace
-    let re_whitespace = Regex::new(r"\s+").unwrap_or_else(|_| Regex::new(r"").unwrap());
-    let normalized_text = re_whitespace.replace_all(&text_without_entities, " ").to_string();
+    // Replace multiple newlines with single newlines
+    let re_newlines = Regex::new(r"\n{3,}").unwrap_or_else(|_| Regex::new(r"").unwrap());
+    let normalized_text = re_newlines.replace_all(&text, "\n\n").to_string();
     
     normalized_text.trim().to_string()
 }
@@ -217,6 +216,7 @@ pub struct CrawlResult {
 pub struct DomainResult {
     pub url: String,
     pub title: Option<String>,
+    pub content: String, // Full cleaned text content of the page
     pub matches: Vec<KeywordMatch>,
     pub pages_crawled: usize,
     pub has_more_pages: bool,
@@ -316,6 +316,7 @@ pub async fn crawl_website(request: &CrawlRequest) -> Result<CrawlResult, Crawle
                 let error_result = DomainResult {
                     url: base_url.to_string(),
                     title: None,
+                    content: String::new(),
                     matches: Vec::new(),
                     pages_crawled: 0,
                     has_more_pages: false,
@@ -364,6 +365,7 @@ async fn crawl_single_domain(
     let mut has_more_pages = false;
     let mut current_url = base_url.clone();
     let mut page_title = None;
+    let mut full_content = String::new(); // Store all page content
     
     // Set max pages to crawl
     let max_pages = request.max_pages.unwrap_or(10);
@@ -424,7 +426,14 @@ async fn crawl_single_domain(
         }
         
         // Process the current page
-        process_page_content(&html_content, &request.keywords, &mut all_matches, time_limit, start_time, &current_url)?;
+        let page_content = process_page_content(&html_content, &request.keywords, &mut all_matches, time_limit, start_time, &current_url)?;
+        
+        // Extract and accumulate full page content
+        let cleaned_page_content = clean_html_text(&html_content);
+        if !full_content.is_empty() {
+            full_content.push_str("\n\n--- Next Page ---\n\n");
+        }
+        full_content.push_str(&cleaned_page_content);
         
         pages_crawled += 1;
         
@@ -475,6 +484,7 @@ async fn crawl_single_domain(
     Ok(DomainResult {
         url: base_url.to_string(),
         title: page_title,
+        content: full_content,
         matches: all_matches,
         pages_crawled,
         has_more_pages,
