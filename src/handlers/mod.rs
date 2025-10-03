@@ -10,6 +10,15 @@ use crate::models::{ApiError, ApiResponse, CreateUserRequest, UpdateUserRequest,
 
 mod crawler;
 pub use crawler::crawl_website;
+mod social;
+pub use social::{
+    proxy_tikhub_twitter,
+    proxy_tikhub_tiktok,
+    proxy_rapidapi_instagram,
+    proxy_rapidapi_twitter_v24,
+    proxy_rapidapi_generic,
+    proxy_tikhub_generic,
+};
 
 pub async fn health_check() -> impl IntoResponse {
     (StatusCode::OK, "API is running")
