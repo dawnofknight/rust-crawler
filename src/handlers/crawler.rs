@@ -3,7 +3,8 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use serde_json::json;
+use serde_json::{json, Value};
+use crate::kafka::{create_producer, produce_json};
 
 use crate::crawler::{CrawlRequest, CrawlerError};
 
@@ -11,7 +12,16 @@ pub async fn crawl_website(
     Json(request): Json<CrawlRequest>,
 ) -> impl IntoResponse {
     match crate::crawler::crawl_website(&request).await {
-        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Ok(result) => {
+            // Produce to Kafka topic if configured
+            if let (Ok(brokers), Ok(topic)) = (std::env::var("KAFKA_BROKERS"), std::env::var("KAFKA_TOPIC_CRAWL")) {
+                if let Ok(producer) = create_producer(&brokers) {
+                    let payload: Value = serde_json::to_value(&result).unwrap_or(json!({"error":"serialize"}));
+                    let _ = produce_json(&producer, &topic, None, &payload).await;
+                }
+            }
+            (StatusCode::OK, Json(result)).into_response()
+        },
         Err(err) => {
             let (status, error_message) = match &err {
                 CrawlerError::RequestError(e) => (StatusCode::BAD_REQUEST, format!("Request error: {}", e)),

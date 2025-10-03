@@ -323,3 +323,47 @@ To add new features or endpoints:
 ## License
 
 MIT
+
+## Kafka Producer and Cassandra Consumer Workflow
+
+This project includes a Kafka-based pipeline to persist crawl outputs into Cassandra.
+
+### Overview
+
+- Backend (`/crawl`) emits `CrawlResult` JSON to Kafka when `KAFKA_BROKERS` and `KAFKA_TOPIC_CRAWL` are set.
+- Consumer (`consumer/`) subscribes to the crawl topic and writes records into Cassandra.
+
+### Environment Variables
+
+- `KAFKA_BROKERS`: Kafka bootstrap servers, e.g. `broker:9092`.
+- `KAFKA_TOPIC_CRAWL`: Topic name to publish/consume, e.g. `crawl_results`.
+- `CASSANDRA_CONTACT_POINTS`: Cassandra contact points, e.g. `cassandra`.
+- `CASSANDRA_KEYSPACE`: Keyspace for data, e.g. `scraper`.
+
+### Docker Compose Services
+
+- `broker`: Kafka (KRaft single-node) exposed on `localhost:9092`.
+- `cassandra`: Cassandra exposed on `localhost:9042`.
+- `consumer`: Rust service that consumes `KAFKA_TOPIC_CRAWL` and inserts rows.
+
+### Backend Producer Behavior
+
+- On successful crawl, the backend publishes the full result JSON to Kafka.
+- Failures to deliver to Kafka are logged but do not fail the HTTP request.
+
+### Cassandra Schema
+
+- On startup, the consumer ensures the keyspace and a table exist:
+  - `scraper.crawl_results (id uuid PRIMARY KEY, payload text, created_at timestamp)`
+  - Adjust schema for production needs (partitioning, indexes).
+
+### Quick Test
+
+1. `docker compose up -d` from repo root.
+2. Send a crawl request (see examples above).
+3. Tail consumer logs: `docker compose logs -f consumer`.
+4. Verify in Cassandra:
+
+```bash
+docker compose exec cassandra cqlsh -e "SELECT count(*) FROM scraper.crawl_results;"
+```

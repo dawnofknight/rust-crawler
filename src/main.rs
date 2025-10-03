@@ -4,6 +4,7 @@ mod handlers;
 mod models;
 mod routes;
 mod crawler;
+mod kafka;
 
 use axum::http::{
     header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},

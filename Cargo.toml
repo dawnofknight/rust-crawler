@@ -18,3 +18,4 @@ url = "2.4.1"
 thiserror = "1.0.50"
 regex = "1.10.2"
 html2text = "0.6.0"
+rdkafka = { version = "0.36", features = ["tokio"] }
